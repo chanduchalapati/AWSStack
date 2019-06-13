@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: The template that creates an EC2 Instance
+Parameters:
+ EC2InstanceType:
+   Description: EC2 instance type.
+   Type: String
+   Default: t2.micro
+ KeyPair:
+   Description: Amazon EC2 Key Pair to be used paired with the EC2 instance.
+   Type: 'AWS::EC2::KeyPair::KeyName'
+ EC2Subnet:
+    Description: The Subnet used by EC2.
+    Type: 'AWS::EC2::Subnet::Id'
+ PrivateSubnetBlock:
+    Description: The IPv4 CIDR block to be used in the stack subnet.
+    Type: 'AWS::EC2::Subnet::Id'
+ VPCid:
+    Description: VPC id
+    Type: 'AWS::EC2::VPC::Id'
+ VpcCidrBlock:
+    Description: The IPv4 CIDR block to be used in the VPC.
+    Type: String
+    Default: 172.31.0.0/16
+ AllowedSshBlock:
+    Description: The IPv4 CIDR block to allow SSH access in all machines.
+    Type: String
+    Default: 0.0.0.0/0
+ DbMasterUsername:
+    Description: The username to be used for database.
+    Type: String
+    Default: mysqlDB
+ DbMasterPassword:
+    Description: The password to be used for the database.
+    Type: String
+    NoEcho: true
+   
+Mappings:
+  EC2InstanceType:
+    t1.micro:
+      Arch: PV64
+    t2.nano:
+      Arch: HVM64
+    t2.micro:
+      Arch: HVM64 
+  RegionToAMI:
+    us-east-1:
+      PV64: ami-2a69aa47
+      HVM64: ami-6869aa05
+      HVMG2: ami-61e27177      
+      
+Resources:
+  EC2InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: EC2BambooRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      #ManagedPolicyArns:
+        #- 'arn:aws:iam::221031001860:role/EC2BambooRole'
+  EC2InstancePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: EC2InstancePolicy 
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Action: '*'
+            Resource: '*'
+            Resource: >-
+              arn:aws:iam::aws:policy/AmazonEC2FullAccess
+      Roles:
+        - !Ref EC2InstanceRole
+  EC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+      InstanceProfileName: EC2InstanceProfile
+      
+  EC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref EC2InstanceType
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds:
+        - !GetAtt "EC2SecurityGroup.GroupId"
+      #SecurityGroups: !Ref EC2SecurityGroup
+      KeyName: !Ref KeyPair
+      ImageId: !FindInMap 
+        - RegionToAMI
+        - !Ref 'AWS::Region'
+        - HVM64
+      SubnetId: !Ref EC2Subnet
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Instance'
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+          - ''
+          - - "#!/bin/bash -xe\n"
+            - 'yum install -y aws-cfn-bootstrap'
+            - "# Install the files and packages from the metadata\n"
+            /opt/aws/bin/cfn-init -v \
+            --region ${AWS::Region} \
+            --stack ${AWS::StackName} \
+            --resource Meta
+            /opt/aws/bin/cfn-signal -e $?
+            --region ${AWS::Region} \
+            --stack ${AWS::StackName} \
+            --resource WebUIInterface
+            
+      #!Base64 
+      #  'Fn::Sub': >
+      #    #!/bin/bash -xe
+      #   /opt/aws/bin/cfn-init -v \
+      #      --region ${AWS::Region} \
+      #      --stack ${AWS::StackName} \
+      #      --resource EC2Instance
+      #   #yum install cloud-init  
+      #    echo "This is a test to see if userdata section is working" > test/test.txt
+      #    yum install git -y
+      #    yum install telnet -y 
+      #    /opt/aws/bin/cfn-signal -e $?
+      #      --region ${AWS::Region} \
+      #      --stack ${AWS::StackName} \
+      #      --resource EC2Instance
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 832c87d0-e3dd-49c7-9a1c-bd20d1eadbbb     
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSH access
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: !Ref 'AllowedSshBlock'
+  Meta:
+    Type: 'AWS::CloudFormation::WaitConditionHandle'
+    Properties: {}
+    Metadata:
+      'AWS::CloudFormation::Init':
+        configSets:
+          default:
+            - runtime
+           
+        runtime:
+          packages:
+            yum:
+              git: []
+              python3: []
+              python3-pip: []
+              ruby: []
+              wget: []
+          commands:
+            install:
+              command: |
+                 cd /home/ec2-user
+                 wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
+                 chmod +x ./install
+                  ./install auto
+  
