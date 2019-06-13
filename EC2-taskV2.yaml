@@ -1,157 +1,75 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: The template that creates an EC2 Instance
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata:
+  License: Apache-2.0
+Description: 'AWS CloudFormation Sample Template IAM_Users_Groups_and_Policies: Sample
+  template showing how to create IAM users, groups and policies. It creates a single
+  user that is a member of a users group and an admin group. The groups each have
+  different IAM policies associated with them. Note: This example also creates an
+  AWSAccessKeyId/AWSSecretKey pair associated with the new user. The example is somewhat
+  contrived since it creates all of the users and groups, typically you would be creating
+  policies, users and/or groups that contain references to existing users or groups
+  in your environment. Note that you will need to specify the CAPABILITY_IAM flag
+  when you create the stack to allow this template to execute. You can do this through
+  the AWS management console by clicking on the check box acknowledging that you understand
+  this template creates IAM resources or by specifying the CAPABILITY_IAM flag to
+  the cfn-create-stack command line tool or CreateStack API call.'
 Parameters:
- EC2InstanceType:
-   Description: EC2 instance type.
-   Type: String
-   Default: t2.micro
- KeyPair:
-   Description: Amazon EC2 Key Pair to be used paired with the EC2 instance.
-   Type: 'AWS::EC2::KeyPair::KeyName'
- EC2Subnet:
-    Description: The Subnet used by EC2.
-    Type: 'AWS::EC2::Subnet::Id'
- PrivateSubnetBlock:
-    Description: The IPv4 CIDR block to be used in the stack subnet.
-    Type: 'AWS::EC2::Subnet::Id'
- VPCid:
-    Description: VPC id
-    Type: 'AWS::EC2::VPC::Id'
- VpcCidrBlock:
-    Description: The IPv4 CIDR block to be used in the VPC.
+  Password:
+    NoEcho: 'true'
     Type: String
-    Default: 172.31.0.0/16
- AllowedSshBlock:
-    Description: The IPv4 CIDR block to allow SSH access in all machines.
-    Type: String
-    Default: 0.0.0.0/0
- DbMasterUsername:
-    Description: The username to be used for database.
-    Type: String
-    Default: mysqlDB
- DbMasterPassword:
-    Description: The password to be used for the database.
-    Type: String
-    NoEcho: true
-   
-Mappings:
-  EC2InstanceType:
-    t1.micro:
-      Arch: PV64
-    t2.nano:
-      Arch: HVM64
-    t2.micro:
-      Arch: HVM64 
-  RegionToAMI:
-    us-east-1:
-      PV64: ami-2a69aa47
-      HVM64: ami-6869aa05
-      HVMG2: ami-61e27177      
-      
+    Description: New account password
+    MinLength: '1'
+    MaxLength: '41'
+    ConstraintDescription: the password must be between 1 and 41 characters
+    Default: chandu5ri
 Resources:
-  EC2InstanceRole:
-    Type: 'AWS::IAM::Role'
+  CFNUser:
+    Type: AWS::IAM::User
     Properties:
-      RoleName: EC2BambooRole
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ec2.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
-      Path: /
-      #ManagedPolicyArns:
-        #- 'arn:aws:iam::221031001860:role/EC2BambooRole'
-  EC2InstancePolicy:
-    Type: 'AWS::IAM::Policy'
+      LoginProfile:
+        Password: !Ref 'Password'
+  CFNUserGroup:
+    Type: AWS::IAM::Group
+  CFNAdminGroup:
+    Type: AWS::IAM::Group
+  Users:
+    Type: AWS::IAM::UserToGroupAddition
     Properties:
-      PolicyName: EC2InstancePolicy 
+      GroupName: !Ref 'CFNUserGroup'
+      Users: [!Ref 'CFNUser']
+  Admins:
+    Type: AWS::IAM::UserToGroupAddition
+    Properties:
+      GroupName: !Ref 'CFNAdminGroup'
+      Users: [!Ref 'CFNUser']
+  CFNUserPolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CFNUsers
       PolicyDocument:
-        Version: 2012-10-17
         Statement:
-          - Effect: "Allow"
-            Action: '*'
-            Resource: '*'
-            Resource: >-
-              arn:aws:iam::aws:policy/AmazonEC2FullAccess
-      Roles:
-        - !Ref EC2InstanceRole
-  EC2InstanceProfile:
-    Type: 'AWS::IAM::InstanceProfile'
+        - Effect: Allow
+          Action: ['cloudformation:Describe*', 'cloudformation:List*', 'cloudformation:Get*']
+          Resource: '*'
+      Groups: [!Ref 'CFNUserGroup']
+  CFNAdminPolicies:
+    Type: AWS::IAM::Policy
     Properties:
-      Roles:
-        - !Ref EC2InstanceRole
-      InstanceProfileName: EC2InstanceProfile
-      
-  EC2Instance:
-    Type: 'AWS::EC2::Instance'
+      PolicyName: CFNAdmins
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: cloudformation:*
+          Resource: '*'
+      Groups: [!Ref 'CFNAdminGroup']
+  CFNKeys:
+    Type: AWS::IAM::AccessKey
     Properties:
-      InstanceType: !Ref EC2InstanceType
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      SecurityGroupIds:
-        - !GetAtt "EC2SecurityGroup.GroupId"
-      #SecurityGroups: !Ref EC2SecurityGroup
-      KeyName: !Ref KeyPair
-      ImageId: !FindInMap 
-        - RegionToAMI
-        - !Ref 'AWS::Region'
-        - HVM64
-      SubnetId: !Ref EC2Subnet
-      Tags:
-        - Key: Name
-          Value: !Sub '${AWS::StackName}-Instance'           
-      #!Base64 
-      #  'Fn::Sub': >
-      #    #!/bin/bash -xe
-      #   /opt/aws/bin/cfn-init -v \
-      #      --region ${AWS::Region} \
-      #      --stack ${AWS::StackName} \
-      #      --resource EC2Instance
-      #   #yum install cloud-init  
-      #    echo "This is a test to see if userdata section is working" > test/test.txt
-      #    yum install git -y
-      #    yum install telnet -y 
-      #    /opt/aws/bin/cfn-signal -e $?
-      #      --region ${AWS::Region} \
-      #      --stack ${AWS::StackName} \
-      #      --resource EC2Instance
-    Metadata:
-      'AWS::CloudFormation::Designer':
-        id: 832c87d0-e3dd-49c7-9a1c-bd20d1eadbbb     
-  EC2SecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: SSH access
-      SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: '22'
-        ToPort: '22'
-        CidrIp: !Ref 'AllowedSshBlock'
-  Meta:
-    Type: 'AWS::CloudFormation::WaitConditionHandle'
-    Properties: {}
-    Metadata:
-      'AWS::CloudFormation::Init':
-        configSets:
-          default:
-            - runtime
-           
-        runtime:
-          packages:
-            yum:
-              git: []
-              python3: []
-              python3-pip: []
-              ruby: []
-              wget: []
-          commands:
-            install:
-              command: |
-                 cd /home/ec2-user
-                 wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
-                 chmod +x ./install
-                  ./install auto
-  
+      UserName: !Ref 'CFNUser'
+Outputs:
+  AccessKey:
+    Value: !Ref 'CFNKeys'
+    Description: AWSAccessKeyId of new user
+  SecretKey:
+    Value: !GetAtt [CFNKeys, SecretAccessKey]
+    Description: AWSSecretAccessKey of new user
